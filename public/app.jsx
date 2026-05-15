@@ -480,15 +480,17 @@ function PlayerArea({ playerState, isMe, onAction, onPreview, label, cardSize, d
 }
 
 // ── Hand Ribbon ───────────────────────────────────────────────────────────────
-function HandRibbon({ cards, onAction, onPreview }) {
+function HandRibbon({ cards, onAction, onPreview, cardSize }) {
   const [contextMenu, setContextMenu] = useState(null);
-  const CARD_W = 60;
-  const CARD_H = 84;
+  const CARD_W = Math.round((cardSize || 60) * 0.85);
+  const CARD_H = Math.round(CARD_W * 1.4);
 
   const menuItems = (card) => [
     { label: "⬆ Play to battlefield", action: () => onAction({ type: "PLAY_CARD", instanceId: card.instanceId, x: 100 + Math.random() * 200, y: 40 }) },
-    { label: card.faceUp ? "🔽 Flip face down" : "🔼 Flip face up", action: () => onAction({ type: "FLIP_CARD", instanceId: card.instanceId }) },
-    { label: "💀 Discard", action: () => onAction({ type: "DISCARD_CARD", instanceId: card.instanceId }) },
+    { label: "⬇ Play face-down", action: () => onAction({ type: "PLAY_CARD_FACEDOWN", instanceId: card.instanceId, x: 100 + Math.random() * 200, y: 40 }) },
+    "---",
+    { label: "💀 Move to graveyard", action: () => onAction({ type: "DISCARD_CARD", instanceId: card.instanceId }) },
+    { label: "🚫 Move to exile", action: () => onAction({ type: "HAND_TO_EXILE", instanceId: card.instanceId }) },
     { label: "📚 To top of library", action: () => onAction({ type: "HAND_TO_LIBRARY_TOP", instanceId: card.instanceId }) },
     { label: "📚 To bottom of library", action: () => onAction({ type: "HAND_TO_LIBRARY_BOTTOM", instanceId: card.instanceId }) },
   ];
@@ -668,7 +670,7 @@ function GameBoard({ gameId, seat, playerName }) {
         )}
         <PlayerArea playerState={oppState} isMe={false} onAction={onAction} onPreview={setPreview} label="Opponent" cardSize={cardSize} drawActive={false} />
         <PlayerArea playerState={myState} isMe={true} onAction={onAction} onPreview={setPreview} label="You" cardSize={cardSize} drawActive={drawActive} drawColor={drawColor} clearSignal={clearSignal} />
-        <HandRibbon cards={myState.hand} onAction={onAction} onPreview={setPreview} />
+        <HandRibbon cards={myState.hand} onAction={onAction} onPreview={setPreview} cardSize={cardSize} />
       </div>
       <SidePanel myState={myState} oppState={oppState} onAction={onAction} chat={gameState.chat} playerName={playerName} onChat={onChat}
         cardSize={cardSize} setCardSize={setCardSize}
