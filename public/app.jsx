@@ -202,11 +202,15 @@ function ZoneViewer({ title, cards, onAction, zoneKey, onClose, readOnly }) {
 }
 
 // ── Library Viewer ────────────────────────────────────────────────────────────
-function LibraryViewer({ cards, onAction, onClose }) {
-  const [topN, setTopN] = useState(Math.min(7, cards.length));
+function LibraryViewer({ cards, onAction, onClose, initialCount }) {
+  const [topN, setTopN] = useState(Math.min(initialCount || 7, cards.length));
   const visible = cards.slice(0, topN).map((c, i) => ({ ...c, _libIdx: i }));
 
-  const menuItems = (card, idx) => [
+  useEffect(() => {
+    onAction({ type: "VIEW_TOP_LIBRARY", count: topN });
+  }, []);
+
+  const menuItems = (card) => [
     { label: "✋ To hand", action: () => onAction({ type: "LIBRARY_CARD_TO_HAND", index: card._libIdx }) },
     { label: "⬆ To battlefield", action: () => onAction({ type: "LIBRARY_CARD_TO_BATTLEFIELD", index: card._libIdx }) },
     { label: "⬆ To top", action: () => onAction({ type: "LIBRARY_CARD_TO_TOP", index: card._libIdx }) },
@@ -218,8 +222,10 @@ function LibraryViewer({ cards, onAction, onClose }) {
     <Modal title={`Library — Top ${topN} of ${cards.length}`} onClose={onClose} wide>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexShrink: 0 }}>
         <label style={{ color: "#aaa", fontSize: 13, whiteSpace: "nowrap" }}>Show top:</label>
-        <input type="range" min={1} max={Math.min(20, cards.length)} value={topN} onChange={e => setTopN(+e.target.value)} style={{ flex: 1 }} />
-        <span style={{ color: "#ffd700", minWidth: 22 }}>{topN}</span>
+        <input type="number" min={1} max={cards.length} value={topN}
+          onChange={e => setTopN(Math.min(Math.max(1, +e.target.value), cards.length))}
+          style={{ width: 60, background: "#0d1117", border: "1px solid #444", color: "#ffd700", padding: "4px 8px", borderRadius: 4, fontSize: 14, textAlign: "center", fontFamily: "Georgia, serif" }} />
+        <span style={{ color: "#666", fontSize: 12 }}>of {cards.length}</span>
       </div>
       <CardGrid cards={visible} onMenuItems={menuItems} />
     </Modal>
@@ -229,21 +235,34 @@ function LibraryViewer({ cards, onAction, onClose }) {
 // ── Search Library ────────────────────────────────────────────────────────────
 function SearchLibrary({ cards, onAction, onClose }) {
   const [query, setQuery] = useState("");
+  const [shuffleOnClose, setShuffleOnClose] = useState(true);
   const filtered = cards.map((c, i) => ({ ...c, _libIdx: i }))
     .filter(c => c.name.toLowerCase().includes(query.toLowerCase()));
 
+  const handleClose = () => {
+    if (shuffleOnClose) onAction({ type: "SHUFFLE_LIBRARY" });
+    onClose();
+  };
+
+  // Notify opponents you're searching
+  useEffect(() => { onAction({ type: "SEARCH_LIBRARY" }); }, []);
+
   const menuItems = (card) => [
-    { label: "✋ To hand", action: () => { onAction({ type: "LIBRARY_CARD_TO_HAND", index: card._libIdx }); onClose(); } },
-    { label: "⬆ To battlefield", action: () => { onAction({ type: "LIBRARY_CARD_TO_BATTLEFIELD", index: card._libIdx }); onClose(); } },
+    { label: "✋ To hand", action: () => onAction({ type: "LIBRARY_CARD_TO_HAND", index: card._libIdx }) },
+    { label: "⬆ To battlefield", action: () => onAction({ type: "LIBRARY_CARD_TO_BATTLEFIELD", index: card._libIdx }) },
     { label: "⬆ To top", action: () => onAction({ type: "LIBRARY_CARD_TO_TOP", index: card._libIdx }) },
     { label: "⬇ To bottom", action: () => onAction({ type: "LIBRARY_CARD_TO_BOTTOM", index: card._libIdx }) },
-    { label: "💀 To graveyard", action: () => { onAction({ type: "LIBRARY_CARD_TO_GRAVEYARD", index: card._libIdx }); onClose(); } },
+    { label: "💀 To graveyard", action: () => onAction({ type: "LIBRARY_CARD_TO_GRAVEYARD", index: card._libIdx }) },
   ];
 
   return (
-    <Modal title={`Search Library (${cards.length} cards)`} onClose={onClose} wide>
+    <Modal title={`Search Library (${cards.length} cards)`} onClose={handleClose} wide>
       <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search by card name..." autoFocus
-        style={{ width: "100%", background: "#0d1117", border: "1px solid #444", color: "#e0e0e0", padding: "7px 12px", borderRadius: 6, fontSize: 14, marginBottom: 10, fontFamily: "Georgia, serif", flexShrink: 0 }} />
+        style={{ width: "100%", background: "#0d1117", border: "1px solid #444", color: "#e0e0e0", padding: "7px 12px", borderRadius: 6, fontSize: 14, marginBottom: 8, fontFamily: "Georgia, serif", flexShrink: 0 }} />
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#aaa", marginBottom: 10, cursor: "pointer", flexShrink: 0 }}>
+        <input type="checkbox" checked={shuffleOnClose} onChange={e => setShuffleOnClose(e.target.checked)} />
+        Shuffle library when closing
+      </label>
       <CardGrid cards={filtered} onMenuItems={menuItems} />
     </Modal>
   );
@@ -399,6 +418,7 @@ function BattlefieldCard({ card, onAction, isMe, onPreview, cardSize, areaWidth,
       { label: "📚 To bottom of library", action: () => onAction({ type: "BF_TO_LIBRARY_BOTTOM", instanceId: card.instanceId }) },
       { label: "💀 To graveyard", action: () => onAction({ type: "MOVE_TO_GRAVEYARD", instanceId: card.instanceId }) },
       { label: "🚫 Exile", action: () => onAction({ type: "MOVE_TO_EXILE", instanceId: card.instanceId }) },
+      { label: "🔀 Give to opponent", action: () => onAction({ type: "MOVE_TO_OPP_BATTLEFIELD", instanceId: card.instanceId }) },
       "---",
       { label: "🔮 Clone", action: () => onAction({ type: "CLONE_CARD", instanceId: card.instanceId }) },
       { label: "+ Counter", action: () => onAction({ type: "ADD_COUNTER", instanceId: card.instanceId }) },
@@ -518,12 +538,16 @@ function HandRibbon({ cards, onAction, onPreview, cardSize }) {
 }
 
 // ── Side Panel ────────────────────────────────────────────────────────────────
-function SidePanel({ myState, oppState, onAction, chat, playerName, onChat, cardSize, setCardSize, drawActive, setDrawActive, drawColor, setDrawColor, onClear }) {
+function SidePanel({ myState, oppState, onAction, chat, log, playerName, onChat, cardSize, setCardSize, drawActive, setDrawActive, drawColor, setDrawColor, onClear, onRestart, onQuit }) {
   const [chatInput, setChatInput] = useState("");
   const [modal, setModal] = useState(null);
+  const [libraryCount, setLibraryCount] = useState(7);
+  const [showLog, setShowLog] = useState(false);
   const chatRef = useRef(null);
+  const logRef = useRef(null);
 
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [chat]);
+  useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [log]);
 
   const sendChat = (e) => { if (e.key === "Enter" && chatInput.trim()) { onChat(chatInput.trim()); setChatInput(""); } };
 
@@ -539,7 +563,8 @@ function SidePanel({ myState, oppState, onAction, chat, playerName, onChat, card
       {modal === "graveyard" && <ZoneViewer title="My Graveyard" cards={myState.graveyard} onAction={onAction} zoneKey="graveyard" onClose={() => setModal(null)} />}
       {modal === "exile" && <ZoneViewer title="My Exile" cards={myState.exile} onAction={onAction} zoneKey="exile" onClose={() => setModal(null)} />}
       {modal === "opp-graveyard" && <ZoneViewer title="Opp Graveyard" cards={oppState.graveyard} onAction={() => {}} zoneKey="graveyard" onClose={() => setModal(null)} readOnly />}
-      {modal === "library" && <LibraryViewer cards={myState.library} onAction={onAction} onClose={() => setModal(null)} />}
+      {modal === "opp-exile" && <ZoneViewer title="Opp Exile" cards={oppState.exile} onAction={() => {}} zoneKey="exile" onClose={() => setModal(null)} readOnly />}
+      {modal === "library" && <LibraryViewer cards={myState.library} onAction={onAction} onClose={() => setModal(null)} initialCount={libraryCount} />}
       {modal === "search" && <SearchLibrary cards={myState.library} onAction={onAction} onClose={() => setModal(null)} />}
       {modal === "token" && <CreateToken onCreate={(t) => onAction({ type: "CREATE_TOKEN", ...t, x: 100, y: 50 })} onClose={() => setModal(null)} />}
 
@@ -561,14 +586,22 @@ function SidePanel({ myState, oppState, onAction, chat, playerName, onChat, card
         {btn("↺ Untap all", () => onAction({ type: "UNTAP_ALL" }))}
         {btn("🔀 Shuffle library", () => onAction({ type: "SHUFFLE_LIBRARY" }))}
         {btn("🔍 Search library", () => setModal("search"))}
-        {btn("👁 View top of library", () => setModal("library"))}
+        {btn("👁 View top of library", () => {
+          const n = parseInt(window.prompt("How many cards to view?", "7"));
+          if (!isNaN(n) && n > 0) { setLibraryCount(n); setModal("library"); }
+        })}
         {btn("✨ Create token", () => setModal("token"))}
       </div>
 
       {/* Zones */}
       <div>
         <div style={{ fontSize: 9, color: "#555", textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 }}>Zones</div>
-        {[["💀 Graveyard", myState.graveyard.length, "graveyard"], ["🚫 Exile", myState.exile.length, "exile"], ["👁 Opp GY", oppState.graveyard.length, "opp-graveyard"]].map(([label, count, key]) => (
+        {[
+          ["💀 Graveyard", myState.graveyard.length, "graveyard"],
+          ["🚫 Exile", myState.exile.length, "exile"],
+          ["👁 Opp GY", oppState.graveyard.length, "opp-graveyard"],
+          ["🚫 Opp Exile", oppState.exile.length, "opp-exile"],
+        ].map(([label, count, key]) => (
           <div key={key} onClick={() => setModal(key)}
             style={{ background: "#16213e", borderRadius: 5, padding: "5px 8px", fontSize: 11, display: "flex", justifyContent: "space-between", cursor: "pointer", marginBottom: 3, border: "1px solid transparent" }}
             onMouseEnter={e => e.currentTarget.style.borderColor = "#ffd700"}
@@ -606,25 +639,51 @@ function SidePanel({ myState, oppState, onAction, chat, playerName, onChat, card
 
       {/* Chat */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-        <div style={{ fontSize: 9, color: "#555", textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 }}>Chat</div>
-        <div ref={chatRef} style={{ flex: 1, overflowY: "auto", background: "#0a0f1a", borderRadius: 5, padding: 6, marginBottom: 5, minHeight: 50, maxHeight: 100 }}>
-          {chat.map((msg, i) => <div key={i} style={{ fontSize: 11, marginBottom: 2 }}><span style={{ color: "#ffd700" }}>{msg.name}: </span>{msg.message}</div>)}
+        <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
+          <div onClick={() => setShowLog(false)} style={{ fontSize: 9, color: showLog ? "#555" : "#ffd700", textTransform: "uppercase", letterSpacing: 1, cursor: "pointer", borderBottom: showLog ? "none" : "1px solid #ffd700", paddingBottom: 2 }}>Chat</div>
+          <div onClick={() => setShowLog(true)} style={{ fontSize: 9, color: showLog ? "#ffd700" : "#555", textTransform: "uppercase", letterSpacing: 1, cursor: "pointer", borderBottom: showLog ? "1px solid #ffd700" : "none", paddingBottom: 2 }}>Log</div>
         </div>
-        <input placeholder="Chat..." value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={sendChat}
-          style={{ background: "#16213e", border: "1px solid #444", color: "#e0e0e0", padding: "4px 8px", borderRadius: 4, fontSize: 11, width: "100%", fontFamily: "Georgia, serif" }} />
+        {!showLog ? (
+          <>
+            <div ref={chatRef} style={{ flex: 1, overflowY: "auto", background: "#0a0f1a", borderRadius: 5, padding: 6, marginBottom: 5, minHeight: 50, maxHeight: 100 }}>
+              {chat.map((msg, i) => <div key={i} style={{ fontSize: 11, marginBottom: 2 }}><span style={{ color: "#ffd700" }}>{msg.name}: </span>{msg.message}</div>)}
+            </div>
+            <input placeholder="Chat..." value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={sendChat}
+              style={{ background: "#16213e", border: "1px solid #444", color: "#e0e0e0", padding: "4px 8px", borderRadius: 4, fontSize: 11, width: "100%", fontFamily: "Georgia, serif" }} />
+          </>
+        ) : (
+          <div ref={logRef} style={{ flex: 1, overflowY: "auto", background: "#0a0f1a", borderRadius: 5, padding: 6, minHeight: 50, maxHeight: 150 }}>
+            {(log || []).map((entry, i) => (
+              <div key={i} style={{ fontSize: 10, marginBottom: 2, color: "#aaa", borderBottom: "1px solid #111", paddingBottom: 2 }}>
+                {entry.message}
+              </div>
+            ))}
+            {(!log || log.length === 0) && <div style={{ fontSize: 10, color: "#444", fontStyle: "italic" }}>No actions yet</div>}
+          </div>
+        )}
       </div>
 
-      {/* Concede */}
-      <button onClick={() => { if (window.confirm("Concede this game?")) onAction({ type: "CONCEDE" }); }}
-        style={{ background: "transparent", border: "1px solid #7f1d1d", color: "#ef4444", padding: "5px 8px", borderRadius: 5, cursor: "pointer", fontSize: 11, fontFamily: "Georgia, serif" }}>
-        🏳 Concede
-      </button>
+      {/* Buttons */}
+      <div style={{ display: "flex", gap: 4 }}>
+        <button onClick={() => { if (window.confirm("Restart the game? Both players will go back to the deck editor.")) onRestart(); }}
+          style={{ flex: 1, background: "transparent", border: "1px solid #555", color: "#aaa", padding: "5px 4px", borderRadius: 5, cursor: "pointer", fontSize: 10, fontFamily: "Georgia, serif" }}>
+          🔄 Restart
+        </button>
+        <button onClick={() => { if (window.confirm("Concede this game?")) onAction({ type: "CONCEDE" }); }}
+          style={{ flex: 1, background: "transparent", border: "1px solid #7f1d1d", color: "#ef4444", padding: "5px 4px", borderRadius: 5, cursor: "pointer", fontSize: 10, fontFamily: "Georgia, serif" }}>
+          🏳 Concede
+        </button>
+        <button onClick={() => { if (window.confirm("Quit to lobby?")) onQuit(); }}
+          style={{ flex: 1, background: "transparent", border: "1px solid #444", color: "#888", padding: "5px 4px", borderRadius: 5, cursor: "pointer", fontSize: 10, fontFamily: "Georgia, serif" }}>
+          🚪 Quit
+        </button>
+      </div>
     </div>
   );
 }
 
 // ── Game Board ────────────────────────────────────────────────────────────────
-function GameBoard({ gameId, seat, playerName }) {
+function GameBoard({ gameId, seat, playerName, onRestart, onQuit }) {
   const [gameState, setGameState] = useState(null);
   const [gameInfo, setGameInfo] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -640,12 +699,14 @@ function GameBoard({ gameId, seat, playerName }) {
     socket.on("game_info", setGameInfo);
     socket.on("player_left", ({ name }) => alert(`${name} has left the game.`));
     socket.on("game_over", ({ reason }) => setGameOver(reason));
+    socket.on("game_restart", () => { onRestart && onRestart(); });
     socket.on("error", ({ message }) => alert(message));
-    return () => { socket.off("game_state"); socket.off("game_info"); socket.off("player_left"); socket.off("game_over"); socket.off("error"); };
+    return () => { socket.off("game_state"); socket.off("game_info"); socket.off("player_left"); socket.off("game_over"); socket.off("game_restart"); socket.off("error"); };
   }, [gameId, seat, playerName]);
 
   const onAction = useCallback((action) => socket.emit("game_action", { gameId, action }), [gameId]);
   const onChat = useCallback((msg) => socket.emit("game_action", { gameId, action: { type: "CHAT", message: msg } }), [gameId]);
+  const handleRestart = useCallback(() => socket.emit("game_action", { gameId, action: { type: "RESTART_GAME" } }), [gameId]);
 
   if (gameOver) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", flexDirection: "column", gap: 16 }}>
@@ -672,11 +733,13 @@ function GameBoard({ gameId, seat, playerName }) {
         <PlayerArea playerState={myState} isMe={true} onAction={onAction} onPreview={setPreview} label="You" cardSize={cardSize} drawActive={drawActive} drawColor={drawColor} clearSignal={clearSignal} />
         <HandRibbon cards={myState.hand} onAction={onAction} onPreview={setPreview} cardSize={cardSize} />
       </div>
-      <SidePanel myState={myState} oppState={oppState} onAction={onAction} chat={gameState.chat} playerName={playerName} onChat={onChat}
+      <SidePanel myState={myState} oppState={oppState} onAction={onAction} chat={gameState.chat} log={gameState.log} playerName={playerName} onChat={onChat}
         cardSize={cardSize} setCardSize={setCardSize}
         drawActive={drawActive} setDrawActive={setDrawActive}
         drawColor={drawColor} setDrawColor={setDrawColor}
         onClear={() => setClearSignal(s => s + 1)}
+        onRestart={handleRestart}
+        onQuit={() => window.location.reload()}
       />
       <CardPreview card={preview} />
     </div>
@@ -688,6 +751,8 @@ function DecklistEditor({ deck, seat, gameId, onReady }) {
   const initialText = cardsToText(deck.cards);
   const [text, setText] = useState(initialText);
   const [loading, setLoading] = useState(false);
+
+  const cardCount = parseDecklist(text).length;
 
   const handleReady = async () => {
     setLoading(true);
@@ -709,7 +774,12 @@ function DecklistEditor({ deck, seat, gameId, onReady }) {
         placeholder={"1 Lightning Bolt\n4 Island\n1 Goblin Guide\n..."}
         style={{ width: "100%", height: 400, background: "#16213e", border: "1px solid #444", color: "#e0e0e0", padding: 12, borderRadius: 8, fontSize: 13, fontFamily: "monospace", lineHeight: 1.6, resize: "vertical" }}
       />
-      <p style={{ color: "#555", fontSize: 12, marginTop: 6, marginBottom: 16 }}>Format: "4 Island", "1 Lightning Bolt" — one per line. Double-click a card in hand or battlefield to tap/play.</p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, marginBottom: 16 }}>
+        <p style={{ color: "#555", fontSize: 12, margin: 0 }}>Format: "4 Island", "1 Lightning Bolt" — one per line.</p>
+        <span style={{ fontSize: 13, color: cardCount >= 40 ? "#4ade80" : "#ffd700", fontWeight: "bold" }}>
+          {cardCount} card{cardCount !== 1 ? "s" : ""}
+        </span>
+      </div>
       <button onClick={handleReady} disabled={loading}
         style={{ width: "100%", background: loading ? "#444" : "#ffd700", color: "#1a1a2e", border: "none", padding: "14px 20px", borderRadius: 8, cursor: loading ? "default" : "pointer", fontWeight: "bold", fontSize: 16, fontFamily: "Georgia, serif" }}>
         {loading ? "⏳ Loading card images..." : "⚔️ Ready to Play!"}
@@ -745,7 +815,13 @@ function Lobby() {
     setEditingDeck({ deck: seat === "A" ? lobby.deckA : lobby.deckB, seat, gameId });
   };
 
-  if (activeGame) return <GameBoard gameId={activeGame.gameId} seat={activeGame.seat} playerName={playerName.trim()} />;
+  if (activeGame) return <GameBoard
+    gameId={activeGame.gameId}
+    seat={activeGame.seat}
+    playerName={playerName.trim()}
+    onRestart={() => setEditingDeck({ deck: activeGame.seat === "A" ? lobby?.deckA : lobby?.deckB, seat: activeGame.seat, gameId: activeGame.gameId })}
+    onQuit={() => { setActiveGame(null); setEditingDeck(null); }}
+  />;
   if (editingDeck) return <DecklistEditor deck={editingDeck.deck} seat={editingDeck.seat} gameId={editingDeck.gameId} onReady={() => setActiveGame({ gameId: editingDeck.gameId, seat: editingDeck.seat })} />;
   if (error) return <div style={{ textAlign: "center", padding: 40, color: "#f87171" }}>{error}</div>;
   if (!lobby) return <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>Loading...</div>;
