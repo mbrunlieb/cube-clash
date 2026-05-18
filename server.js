@@ -465,7 +465,9 @@ io.on("connection", (socket) => {
         game.state.playerA = buildPlayerState("A", currentWeek.deckA, game.originalCards.A || []);
         game.state.playerB = buildPlayerState("B", currentWeek.deckB, game.originalCards.B || []);
         game.state.log = [{ message: `${name} restarted the game`, time: Date.now() }];
-        game.status = "active";
+        game.status = "waiting";
+        // Clear player registrations so both can rejoin after deck editor
+        game.players = {};
         io.to(gameId).emit("game_restart", {});
         break;
       }
