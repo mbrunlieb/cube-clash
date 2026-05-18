@@ -361,7 +361,7 @@ function DrawCanvas({ active, color, onClear, areaRef }) {
 }
 
 // ── Battlefield Card ──────────────────────────────────────────────────────────
-function BattlefieldCard({ card, onAction, isMe, onPreview, cardSize, areaWidth, areaHeight }) {
+function BattlefieldCard({ card, onAction, isMe, onPreview, cardSize, areaWidth, areaHeight, baseZIndex, onBringToFront }) {
   const [contextMenu, setContextMenu] = useState(null);
   const dragging = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
@@ -379,6 +379,7 @@ function BattlefieldCard({ card, onAction, isMe, onPreview, cardSize, areaWidth,
   const handlePointerDown = (e) => {
     if (!isMe || e.button !== 0) return;
     e.preventDefault();
+    onBringToFront && onBringToFront(card.instanceId);
     dragging.current = true;
     moved.current = false;
     const rect = cardRef.current.getBoundingClientRect();
@@ -433,7 +434,7 @@ function BattlefieldCard({ card, onAction, isMe, onPreview, cardSize, areaWidth,
           position: "absolute", left: card.x || 0, top: card.y || 0, width: w, height: h,
           borderRadius: 5, userSelect: "none", touchAction: "none",
           transform: card.tapped ? `rotate(90deg)` : "none",
-          zIndex: dragging.current ? 100 : 5,
+          zIndex: dragging.current ? 1000 : (baseZIndex || 5),
           outline: card.isToken ? "2px solid #9b59b6" : "none",
           cursor: isMe ? "grab" : "default",
         }}
@@ -469,6 +470,8 @@ function BattlefieldCard({ card, onAction, isMe, onPreview, cardSize, areaWidth,
 function PlayerArea({ playerState, isMe, onAction, onPreview, label, cardSize, drawActive, drawColor, clearSignal }) {
   const areaRef = useRef(null);
   const [dims, setDims] = useState({ w: 800, h: 300 });
+  const [cardZIndices, setCardZIndices] = useState({});
+  const zCounter = useRef(10);
 
   useEffect(() => {
     const update = () => {
@@ -482,6 +485,11 @@ function PlayerArea({ playerState, isMe, onAction, onPreview, label, cardSize, d
     return () => window.removeEventListener("resize", update);
   }, []);
 
+  const bringToFront = useCallback((instanceId) => {
+    zCounter.current += 1;
+    setCardZIndices(prev => ({ ...prev, [instanceId]: zCounter.current }));
+  }, []);
+
   return (
     <div ref={areaRef} style={{ flex: 1, position: "relative", borderBottom: "2px solid #333", overflow: "hidden", background: isMe ? "#111827" : "#0d1117" }}>
       <div style={{ position: "absolute", top: 8, left: 12, fontSize: 11, color: "#555", textTransform: "uppercase", letterSpacing: 1, zIndex: 10 }}>
@@ -492,6 +500,8 @@ function PlayerArea({ playerState, isMe, onAction, onPreview, label, cardSize, d
           onAction={isMe ? onAction : () => {}} isMe={isMe}
           onPreview={onPreview} cardSize={cardSize}
           areaWidth={dims.w} areaHeight={dims.h}
+          baseZIndex={cardZIndices[card.instanceId] || 5}
+          onBringToFront={isMe ? bringToFront : null}
         />
       ))}
       {isMe && <DrawCanvas active={drawActive} color={drawColor} onClear={clearSignal} areaRef={areaRef} />}
@@ -538,7 +548,7 @@ function HandRibbon({ cards, onAction, onPreview, cardSize }) {
 }
 
 // ── Side Panel ────────────────────────────────────────────────────────────────
-function SidePanel({ myState, oppState, onAction, chat, log, playerName, onChat, cardSize, setCardSize, drawActive, setDrawActive, drawColor, setDrawColor, onClear, onRestart, onQuit }) {
+function SidePanel({ myState, oppState, onAction, chat, log, playerName, onChat, cardSize, setCardSize, handSize, setHandSize, drawActive, setDrawActive, drawColor, setDrawColor, onClear, onRestart, onQuit }) {
   const [chatInput, setChatInput] = useState("");
   const [modal, setModal] = useState(null);
   const [libraryCount, setLibraryCount] = useState(7);
@@ -587,7 +597,7 @@ function SidePanel({ myState, oppState, onAction, chat, log, playerName, onChat,
         {btn("🔀 Shuffle library", () => onAction({ type: "SHUFFLE_LIBRARY" }))}
         {btn("🔍 Search library", () => setModal("search"))}
         {btn("👁 View top of library", () => {
-          const n = parseInt(window.prompt("How many cards to view?", "7"));
+          const n = parseInt(window.prompt("How many cards to view?", "1"));
           if (!isNaN(n) && n > 0) { setLibraryCount(n); setModal("library"); }
         })}
         {btn("✨ Create token", () => setModal("token"))}
@@ -610,12 +620,17 @@ function SidePanel({ myState, oppState, onAction, chat, log, playerName, onChat,
         ))}
       </div>
 
-      {/* Card size */}
+      {/* Card sizes */}
       <div>
-        <div style={{ fontSize: 9, color: "#555", textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 }}>Card Size</div>
+        <div style={{ fontSize: 9, color: "#555", textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 }}>Battlefield Size</div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <input type="range" min={40} max={150} value={cardSize} onChange={e => setCardSize(+e.target.value)} style={{ flex: 1 }} />
+          <input type="range" min={40} max={200} value={cardSize} onChange={e => setCardSize(+e.target.value)} style={{ flex: 1 }} />
           <span style={{ fontSize: 10, color: "#aaa", minWidth: 22 }}>{cardSize}</span>
+        </div>
+        <div style={{ fontSize: 9, color: "#555", textTransform: "uppercase", letterSpacing: 1, marginBottom: 3, marginTop: 6 }}>Hand Size</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input type="range" min={40} max={200} value={handSize} onChange={e => setHandSize(+e.target.value)} style={{ flex: 1 }} />
+          <span style={{ fontSize: 10, color: "#aaa", minWidth: 22 }}>{handSize}</span>
         </div>
       </div>
 
@@ -688,6 +703,7 @@ function GameBoard({ gameId, seat, playerName, onRestart, onQuit }) {
   const [gameInfo, setGameInfo] = useState(null);
   const [preview, setPreview] = useState(null);
   const [cardSize, setCardSize] = useState(70);
+  const [handSize, setHandSize] = useState(70);
   const [gameOver, setGameOver] = useState(null);
   const [drawActive, setDrawActive] = useState(false);
   const [drawColor, setDrawColor] = useState("#ff4444");
@@ -731,10 +747,11 @@ function GameBoard({ gameId, seat, playerName, onRestart, onQuit }) {
         )}
         <PlayerArea playerState={oppState} isMe={false} onAction={onAction} onPreview={setPreview} label="Opponent" cardSize={cardSize} drawActive={false} />
         <PlayerArea playerState={myState} isMe={true} onAction={onAction} onPreview={setPreview} label="You" cardSize={cardSize} drawActive={drawActive} drawColor={drawColor} clearSignal={clearSignal} />
-        <HandRibbon cards={myState.hand} onAction={onAction} onPreview={setPreview} cardSize={cardSize} />
+        <HandRibbon cards={myState.hand} onAction={onAction} onPreview={setPreview} cardSize={handSize} />
       </div>
       <SidePanel myState={myState} oppState={oppState} onAction={onAction} chat={gameState.chat} log={gameState.log} playerName={playerName} onChat={onChat}
         cardSize={cardSize} setCardSize={setCardSize}
+        handSize={handSize} setHandSize={setHandSize}
         drawActive={drawActive} setDrawActive={setDrawActive}
         drawColor={drawColor} setDrawColor={setDrawColor}
         onClear={() => setClearSignal(s => s + 1)}
@@ -819,7 +836,11 @@ function Lobby() {
     gameId={activeGame.gameId}
     seat={activeGame.seat}
     playerName={playerName.trim()}
-    onRestart={() => setEditingDeck({ deck: activeGame.seat === "A" ? lobby?.deckA : lobby?.deckB, seat: activeGame.seat, gameId: activeGame.gameId })}
+    onRestart={() => {
+      const deckData = activeGame.seat === "A" ? lobby?.deckA : lobby?.deckB;
+      setActiveGame(null);
+      setEditingDeck({ deck: deckData, seat: activeGame.seat, gameId: activeGame.gameId });
+    }}
     onQuit={() => { setActiveGame(null); setEditingDeck(null); }}
   />;
   if (editingDeck) return <DecklistEditor deck={editingDeck.deck} seat={editingDeck.seat} gameId={editingDeck.gameId} onReady={() => setActiveGame({ gameId: editingDeck.gameId, seat: editingDeck.seat })} />;
@@ -838,9 +859,11 @@ function Lobby() {
   return (
     <div style={{ maxWidth: 700, margin: "0 auto", padding: "40px 20px", textAlign: "center" }}>
       <h1 style={{ fontSize: "2.5rem", color: "#ffd700", marginBottom: 8, textShadow: "0 0 20px rgba(255,215,0,0.4)" }}>⚔️ Cube Clash</h1>
-      <p style={{ color: "#aaa", marginBottom: 32, fontStyle: "italic" }}>{lobby.weekLabel}</p>
+      <p style={{ color: "#aaa", marginBottom: 32, fontStyle: "italic" }}>
+        {lobby.deckA?.drafter} vs {lobby.deckB?.drafter}
+      </p>
       <input placeholder="Enter your name to play..." value={playerName} onChange={e => setPlayerName(e.target.value)}
-        style={{ background: "#16213e", border: "1px solid #444", color: "#e0e0e0", padding: "10px 16px", borderRadius: 6, fontSize: 15, fontFamily: "Georgia, serif", marginBottom: 24, width: "100%" }} />
+        style={{ background: "#16213e", border: `2px solid ${playerName.trim() ? "#ffd700" : "#ffd700"}`, color: "#e0e0e0", padding: "10px 16px", borderRadius: 6, fontSize: 15, fontFamily: "Georgia, serif", marginBottom: 24, width: "100%", outline: "none", boxShadow: "0 0 8px rgba(255,215,0,0.2)" }} />
       <div style={{ display: "flex", gap: 20, justifyContent: "center", marginBottom: 32 }}>
         {[["A", lobby.deckA], ["B", lobby.deckB]].map(([seat, deck]) => (
           <div key={seat} onClick={() => startGame(seat)}
