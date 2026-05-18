@@ -53,7 +53,13 @@ async function fetchScryfallImages(cards) {
     } catch (e) { console.warn("Scryfall:", e); }
     await new Promise(r => setTimeout(r, 110));
   }
-  return cards.map(c => ({ ...c, imageUrl: imageMap[c.name] || imageMap[c.name?.split("//")[0]?.trim()] || null }));
+  return cards.map(c => ({
+    ...c,
+    imageUrl: imageMap[c.name]
+      || imageMap[c.name?.split("//")[0]?.trim()]
+      || imageMap[c.name?.split("//")[1]?.trim()]
+      || null
+  }));
 }
 
 // ── Reliable Context Menu (overlay approach) ──────────────────────────────────
@@ -653,21 +659,21 @@ function SidePanel({ myState, oppState, onAction, chat, log, playerName, onChat,
       </div>
 
       {/* Chat */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-        <div style={{ display: "flex", gap: 6, marginBottom: 3 }}>
+      <div style={{ flex: "1 1 0", display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+        <div style={{ display: "flex", gap: 6, marginBottom: 3, flexShrink: 0 }}>
           <div onClick={() => setShowLog(false)} style={{ fontSize: 9, color: showLog ? "#555" : "#ffd700", textTransform: "uppercase", letterSpacing: 1, cursor: "pointer", borderBottom: showLog ? "none" : "1px solid #ffd700", paddingBottom: 2 }}>Chat</div>
           <div onClick={() => setShowLog(true)} style={{ fontSize: 9, color: showLog ? "#ffd700" : "#555", textTransform: "uppercase", letterSpacing: 1, cursor: "pointer", borderBottom: showLog ? "1px solid #ffd700" : "none", paddingBottom: 2 }}>Log</div>
         </div>
         {!showLog ? (
           <>
-            <div ref={chatRef} style={{ flex: 1, overflowY: "auto", background: "#0a0f1a", borderRadius: 5, padding: 6, marginBottom: 5, minHeight: 50, maxHeight: 100 }}>
+            <div ref={chatRef} style={{ overflowY: "auto", background: "#0a0f1a", borderRadius: 5, padding: 6, marginBottom: 5, height: 80, flexShrink: 0 }}>
               {chat.map((msg, i) => <div key={i} style={{ fontSize: 11, marginBottom: 2 }}><span style={{ color: "#ffd700" }}>{msg.name}: </span>{msg.message}</div>)}
             </div>
             <input placeholder="Chat..." value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={sendChat}
-              style={{ background: "#16213e", border: "1px solid #444", color: "#e0e0e0", padding: "4px 8px", borderRadius: 4, fontSize: 11, width: "100%", fontFamily: "Georgia, serif" }} />
+              style={{ background: "#16213e", border: "1px solid #444", color: "#e0e0e0", padding: "4px 8px", borderRadius: 4, fontSize: 11, width: "100%", fontFamily: "Georgia, serif", flexShrink: 0 }} />
           </>
         ) : (
-          <div ref={logRef} style={{ flex: 1, overflowY: "auto", background: "#0a0f1a", borderRadius: 5, padding: 6, minHeight: 50, maxHeight: 150 }}>
+          <div ref={logRef} style={{ overflowY: "auto", background: "#0a0f1a", borderRadius: 5, padding: 6, height: 120, flexShrink: 0 }}>
             {(log || []).map((entry, i) => (
               <div key={i} style={{ fontSize: 10, marginBottom: 2, color: "#aaa", borderBottom: "1px solid #111", paddingBottom: 2 }}>
                 {entry.message}
@@ -679,7 +685,7 @@ function SidePanel({ myState, oppState, onAction, chat, log, playerName, onChat,
       </div>
 
       {/* Buttons */}
-      <div style={{ display: "flex", gap: 4 }}>
+      <div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 4 }}>
         <button onClick={() => { if (window.confirm("Restart the game? Both players will go back to the deck editor.")) onRestart(); }}
           style={{ flex: 1, background: "transparent", border: "1px solid #555", color: "#aaa", padding: "5px 4px", borderRadius: 5, cursor: "pointer", fontSize: 10, fontFamily: "Georgia, serif" }}>
           🔄 Restart
