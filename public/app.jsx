@@ -311,10 +311,45 @@ function CreateToken({ onCreate, onClose }) {
 }
 
 // ── Drawing Canvas ────────────────────────────────────────────────────────────
-function DrawCanvas({ active, color, onClear, areaRef }) {
+// One canvas overlays BOTH battlefields. Strokes are kept in normalized coords
+// (0–1 of the combined area) so they line up across different screen sizes,
+// and are synced to the opponent via socket. The opponent's view is upside-down
+// relative to ours, so strokes from the other seat are drawn with Y flipped.
+function DrawCanvas({ active, color, strokes, onStroke, areaRef, mySeat }) {
   const canvasRef = useRef(null);
   const drawing = useRef(false);
-  const lastPt = useRef(null);
+  const current = useRef(null); // in-progress stroke (normalized points)
+
+  const toCanvas = (pt, seat) => {
+    const c = canvasRef.current;
+    const y = seat === mySeat ? pt.y : 1 - pt.y;
+    return { x: pt.x * c.width, y: y * c.height };
+  };
+
+  const drawStroke = (ctx, stroke) => {
+    if (!stroke.points || stroke.points.length < 2) return;
+    ctx.strokeStyle = stroke.color;
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    const p0 = toCanvas(stroke.points[0], stroke.seat);
+    ctx.moveTo(p0.x, p0.y);
+    for (let i = 1; i < stroke.points.length; i++) {
+      const p = toCanvas(stroke.points[i], stroke.seat);
+      ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+  };
+
+  const redraw = useCallback(() => {
+    const c = canvasRef.current;
+    if (!c) return;
+    const ctx = c.getContext("2d");
+    ctx.clearRect(0, 0, c.width, c.height);
+    strokes.forEach(st => drawStroke(ctx, st));
+    if (current.current) drawStroke(ctx, current.current);
+  }, [strokes, mySeat]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -323,50 +358,47 @@ function DrawCanvas({ active, color, onClear, areaRef }) {
       const rect = areaRef.current.getBoundingClientRect();
       canvas.width = rect.width;
       canvas.height = rect.height;
+      redraw();
     };
     resize();
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
-  }, [areaRef]);
+  }, [areaRef, redraw]);
+
+  useEffect(() => { redraw(); }, [redraw]);
 
   const getPos = (e) => {
     const rect = canvasRef.current.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    return { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
   };
 
-  const onMouseDown = (e) => {
+  const onPointerDown = (e) => {
     if (!active) return;
+    e.preventDefault();
+    canvasRef.current.setPointerCapture?.(e.pointerId);
     drawing.current = true;
-    lastPt.current = getPos(e);
+    current.current = { color, seat: mySeat, points: [getPos(e)] };
   };
 
-  const onMouseMove = (e) => {
-    if (!active || !drawing.current) return;
-    const ctx = canvasRef.current.getContext("2d");
-    const pt = getPos(e);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 3;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(lastPt.current.x, lastPt.current.y);
-    ctx.lineTo(pt.x, pt.y);
-    ctx.stroke();
-    lastPt.current = pt;
+  const onPointerMove = (e) => {
+    if (!active || !drawing.current || !current.current) return;
+    current.current.points.push(getPos(e));
+    redraw();
   };
 
-  const onMouseUp = () => { drawing.current = false; };
-
-  useEffect(() => {
-    if (onClear) {
-      const ctx = canvasRef.current?.getContext("2d");
-      if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-    }
-  }, [onClear]);
+  const onPointerUp = () => {
+    if (!drawing.current) return;
+    drawing.current = false;
+    const st = current.current;
+    current.current = null;
+    if (st && st.points.length > 1) onStroke(st);
+    else redraw();
+  };
 
   return (
     <canvas ref={canvasRef}
-      style={{ position: "absolute", inset: 0, zIndex: active ? 50 : 0, cursor: active ? "crosshair" : "default", pointerEvents: active ? "all" : "none" }}
-      onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
+      style={{ position: "absolute", inset: 0, zIndex: active ? 50 : 4, cursor: active ? "crosshair" : "default", pointerEvents: active ? "all" : "none", touchAction: "none" }}
+      onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onPointerLeave={onPointerUp}
     />
   );
 }
@@ -481,7 +513,7 @@ function BattlefieldCard({ card, onAction, isMe, onPreview, cardSize, areaWidth,
 }
 
 // ── Player Area ───────────────────────────────────────────────────────────────
-function PlayerArea({ playerState, isMe, onAction, onPreview, label, cardSize, drawActive, drawColor, clearSignal }) {
+function PlayerArea({ playerState, isMe, onAction, onPreview, label, cardSize }) {
   const areaRef = useRef(null);
   const [dims, setDims] = useState({ w: 800, h: 300 });
   const [cardZIndices, setCardZIndices] = useState({});
@@ -518,7 +550,6 @@ function PlayerArea({ playerState, isMe, onAction, onPreview, label, cardSize, d
           onBringToFront={isMe ? bringToFront : null}
         />
       ))}
-      {isMe && <DrawCanvas active={drawActive} color={drawColor} onClear={clearSignal} areaRef={areaRef} />}
     </div>
   );
 }
@@ -721,22 +752,31 @@ function GameBoard({ gameId, seat, playerName, onRestart, onQuit }) {
   const [gameOver, setGameOver] = useState(null);
   const [drawActive, setDrawActive] = useState(false);
   const [drawColor, setDrawColor] = useState("#ff4444");
-  const [clearSignal, setClearSignal] = useState(0);
+  const [strokes, setStrokes] = useState([]);
+  const boardRef = useRef(null);
 
   useEffect(() => {
     socket.emit("join_game", { gameId, playerName, seat });
     socket.on("game_state", setGameState);
+    socket.on("draw_sync", (all) => setStrokes(Array.isArray(all) ? all : []));
+    socket.on("draw_stroke", (st) => setStrokes(prev => [...prev, st]));
+    socket.on("draw_clear", () => setStrokes([]));
     socket.on("game_info", setGameInfo);
     socket.on("player_left", ({ name }) => alert(`${name} has left the game.`));
     socket.on("game_over", ({ reason }) => setGameOver(reason));
     socket.on("game_restart", () => { onRestart && onRestart(); });
     socket.on("error", ({ message }) => alert(message));
-    return () => { socket.off("game_state"); socket.off("game_info"); socket.off("player_left"); socket.off("game_over"); socket.off("game_restart"); socket.off("error"); };
+    return () => { socket.off("game_state"); socket.off("draw_sync"); socket.off("draw_stroke"); socket.off("draw_clear"); socket.off("game_info"); socket.off("player_left"); socket.off("game_over"); socket.off("game_restart"); socket.off("error"); };
   }, [gameId, seat, playerName]);
 
   const onAction = useCallback((action) => socket.emit("game_action", { gameId, action }), [gameId]);
   const onChat = useCallback((msg) => socket.emit("game_action", { gameId, action: { type: "CHAT", message: msg } }), [gameId]);
   const handleRestart = useCallback(() => socket.emit("game_action", { gameId, action: { type: "RESTART_GAME" } }), [gameId]);
+  const handleStroke = useCallback((st) => {
+    setStrokes(prev => [...prev, st]);
+    socket.emit("draw_stroke", { gameId, stroke: st });
+  }, [gameId]);
+  const handleClearDrawing = useCallback(() => socket.emit("draw_clear", { gameId }), [gameId]);
 
   if (gameOver) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", flexDirection: "column", gap: 16 }}>
@@ -759,8 +799,11 @@ function GameBoard({ gameId, seat, playerName, onRestart, onQuit }) {
             ⏳ Waiting for opponent — share this URL with them!
           </div>
         )}
-        <PlayerArea playerState={oppState} isMe={false} onAction={onAction} onPreview={setPreview} label="Opponent" cardSize={cardSize} drawActive={false} />
-        <PlayerArea playerState={myState} isMe={true} onAction={onAction} onPreview={setPreview} label="You" cardSize={cardSize} drawActive={drawActive} drawColor={drawColor} clearSignal={clearSignal} />
+        <div ref={boardRef} style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" }}>
+          <PlayerArea playerState={oppState} isMe={false} onAction={onAction} onPreview={setPreview} label="Opponent" cardSize={cardSize} />
+          <PlayerArea playerState={myState} isMe={true} onAction={onAction} onPreview={setPreview} label="You" cardSize={cardSize} />
+          <DrawCanvas active={drawActive} color={drawColor} strokes={strokes} onStroke={handleStroke} areaRef={boardRef} mySeat={seat} />
+        </div>
         <HandRibbon cards={myState.hand} onAction={onAction} onPreview={setPreview} cardSize={handSize} />
       </div>
       <SidePanel myState={myState} oppState={oppState} onAction={onAction} chat={gameState.chat} log={gameState.log} playerName={playerName} onChat={onChat}
@@ -768,7 +811,7 @@ function GameBoard({ gameId, seat, playerName, onRestart, onQuit }) {
         handSize={handSize} setHandSize={setHandSize}
         drawActive={drawActive} setDrawActive={setDrawActive}
         drawColor={drawColor} setDrawColor={setDrawColor}
-        onClear={() => setClearSignal(s => s + 1)}
+        onClear={handleClearDrawing}
         onRestart={handleRestart}
         onQuit={() => window.location.reload()}
       />
