@@ -24,6 +24,42 @@ let currentWeek = {
 
 const games = {};
 
+// ── Self-healing deck load ────────────────────────────────────────────────────
+// Railway restarts wipe memory. The trophy-battle workflow commits this week's
+// decks to current_week.json in the bot repo; we load it on boot and whenever
+// the lobby is hit while no decks are set.
+
+const CURRENT_WEEK_URL =
+  process.env.CURRENT_WEEK_URL ||
+  "https://raw.githubusercontent.com/mbrunlieb/cube-card-of-the-week/main/current_week.json";
+const RELOAD_COOLDOWN_MS = 60 * 1000;
+let lastReloadAttempt = 0;
+
+async function loadCurrentWeekFromRepo(reason) {
+  const now = Date.now();
+  if (now - lastReloadAttempt < RELOAD_COOLDOWN_MS) return false;
+  lastReloadAttempt = now;
+  try {
+    const fetchFn = globalThis.fetch || require("node-fetch");
+    const res = await fetchFn(`${CURRENT_WEEK_URL}?t=${now}`); // bust GitHub's raw cache
+    if (!res.ok) {
+      console.log(`current_week.json fetch failed (${res.status}) [${reason}]`);
+      return false;
+    }
+    const data = await res.json();
+    if (!data.weekLabel || !data.deckA || !data.deckB) {
+      console.log(`current_week.json is missing fields [${reason}]`);
+      return false;
+    }
+    currentWeek = { weekLabel: data.weekLabel, deckA: data.deckA, deckB: data.deckB };
+    console.log(`Loaded decks from repo: ${data.weekLabel} [${reason}]`);
+    return true;
+  } catch (err) {
+    console.log(`current_week.json load error [${reason}]: ${err.message}`);
+    return false;
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function generateId() {
@@ -113,7 +149,8 @@ app.post("/api/set-decks", (req, res) => {
   res.json({ ok: true, weekLabel });
 });
 
-app.get("/api/lobby", (req, res) => {
+app.get("/api/lobby", async (req, res) => {
+  if (!currentWeek.weekLabel) await loadCurrentWeekFromRepo("lobby");
   const activeGames = Object.values(games).map(g => ({
     gameId: g.gameId,
     status: g.status,
@@ -501,4 +538,5 @@ io.on("connection", (socket) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Cube Clash server running on port ${PORT}`);
+  loadCurrentWeekFromRepo("startup");
 });
