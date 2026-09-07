@@ -206,7 +206,28 @@ io.on("connection", (socket) => {
 
     io.to(gameId).emit("game_state", game.state);
     io.to(gameId).emit("game_info", { gameId, status: game.status, players: Object.values(game.players) });
+    // Send any existing board drawings to the joining player
+    socket.emit("draw_sync", game.drawings || []);
     console.log(`${playerName} joined game ${gameId} as Deck ${seat}`);
+  });
+
+  // ── Shared board drawing ──
+  // Strokes use normalized coords (0–1) relative to the combined battlefield
+  // area, in the drawer's own view. Receivers flip Y for the opposite seat.
+  socket.on("draw_stroke", ({ gameId, stroke }) => {
+    const game = games[gameId];
+    if (!game || !stroke || !Array.isArray(stroke.points)) return;
+    game.drawings = game.drawings || [];
+    game.drawings.push(stroke);
+    if (game.drawings.length > 300) game.drawings.shift();
+    socket.to(gameId).emit("draw_stroke", stroke);
+  });
+
+  socket.on("draw_clear", ({ gameId }) => {
+    const game = games[gameId];
+    if (!game) return;
+    game.drawings = [];
+    io.to(gameId).emit("draw_clear", {});
   });
 
   socket.on("game_action", ({ gameId, action }) => {
@@ -503,6 +524,7 @@ io.on("connection", (socket) => {
         game.state.playerB = buildPlayerState("B", currentWeek.deckB, game.originalCards.B || []);
         game.state.log = [{ message: `${name} restarted the game`, time: Date.now() }];
         game.status = "waiting";
+        game.drawings = [];
         // Clear player registrations so both can rejoin after deck editor
         game.players = {};
         io.to(gameId).emit("game_restart", {});
