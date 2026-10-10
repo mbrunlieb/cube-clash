@@ -115,10 +115,32 @@ function createGame() {
       log: [],
     },
     createdAt: Date.now(),
+    // Empty-game cleanup: a game with no players is removed once this grace
+    // period has passed since it last became empty (see sweepGames).
+    emptySince: Date.now(),
+    emptyGraceMs: SETUP_GRACE_MS,
   };
   games[gameId] = game;
   return game;
 }
+
+// ── Empty game cleanup ────────────────────────────────────────────────────────
+// Games with no players (everyone quit, or nobody ever joined) shouldn't sit in
+// the lobby forever. Quitting reloads the page, which disconnects the socket;
+// the disconnect handler stamps the game as empty and this sweep removes it.
+const SETUP_GRACE_MS = 10 * 60 * 1000; // created / restarted: players are in the deck editor
+const QUIT_GRACE_MS = 15 * 1000;       // last player disconnected: short grace for refreshes
+
+function sweepGames() {
+  const now = Date.now();
+  for (const [id, g] of Object.entries(games)) {
+    if (Object.keys(g.players).length === 0 && now - (g.emptySince || g.createdAt) > (g.emptyGraceMs || SETUP_GRACE_MS)) {
+      delete games[id];
+      console.log(`Removed empty game ${id}`);
+    }
+  }
+}
+setInterval(sweepGames, 10 * 1000);
 
 function removeFromZone(playerState, zone, instanceId) {
   const idx = playerState[zone].findIndex(c => c.instanceId === instanceId);
@@ -151,6 +173,7 @@ app.post("/api/set-decks", (req, res) => {
 
 app.get("/api/lobby", async (req, res) => {
   if (!currentWeek.weekLabel) await loadCurrentWeekFromRepo("lobby");
+  sweepGames();
   const activeGames = Object.values(games).map(g => ({
     gameId: g.gameId,
     status: g.status,
@@ -527,6 +550,8 @@ io.on("connection", (socket) => {
         game.drawings = [];
         // Clear player registrations so both can rejoin after deck editor
         game.players = {};
+        game.emptySince = Date.now();
+        game.emptyGraceMs = SETUP_GRACE_MS;
         io.to(gameId).emit("game_restart", {});
         break;
       }
@@ -549,6 +574,11 @@ io.on("connection", (socket) => {
         const player = game.players[socket.id];
         delete game.players[socket.id];
         game.status = "waiting";
+        if (Object.keys(game.players).length === 0) {
+          // Everyone has left: schedule the game for removal from the lobby.
+          game.emptySince = Date.now();
+          game.emptyGraceMs = QUIT_GRACE_MS;
+        }
         io.to(game.gameId).emit("player_left", { name: player.name });
         break;
       }
