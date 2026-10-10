@@ -412,10 +412,11 @@ function BattlefieldCard({ card, onAction, isMe, onPreview, cardSize, areaWidth,
   const cardRef = useRef(null);
   const w = cardSize;
   const h = Math.round(cardSize * 1.4);
-  const PANEL_W = 215;
 
+  // areaWidth is the battlefield's own width (the side panel sits outside it),
+  // so cards can go all the way to the right edge.
   const clamp = (x, y) => ({
-    x: Math.max(0, Math.min(x, (areaWidth || 800) - w - PANEL_W)),
+    x: Math.max(0, Math.min(x, (areaWidth || 800) - w)),
     y: Math.max(0, Math.min(y, (areaHeight || 300) - h)),
   });
 
@@ -423,6 +424,7 @@ function BattlefieldCard({ card, onAction, isMe, onPreview, cardSize, areaWidth,
     if (!isMe || e.button !== 0) return;
     e.preventDefault();
     onBringToFront && onBringToFront(card.instanceId);
+    onPreview && onPreview(null); // hide hover preview while dragging
     dragging.current = true;
     moved.current = false;
     const rect = cardRef.current.getBoundingClientRect();
@@ -443,6 +445,7 @@ function BattlefieldCard({ card, onAction, isMe, onPreview, cardSize, areaWidth,
   const handlePointerUp = (e) => {
     if (!dragging.current) return;
     dragging.current = false;
+    onPreview && onPreview(card); // cursor is still over the card; show preview again
   };
 
   const handleDoubleClick = () => {
